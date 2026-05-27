@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eid Spin & Win | Elyra Elegants</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="stars"></div>
+    <div class="lantern l1">🏮</div>
+    <div class="lantern l2">🏮</div>
+    <div class="moon">🌙</div>
+
+    <div class="container">
+        <header>
+            <h1 class="main-title">ঈদের আনন্দ দ্বিগুণ করতে <span class="brand-name">Elyra Elegants</span> এর বিশেষ</h1>
+            <h2 class="sub-title">Eidi Spin & Win Campaign</h2>
+        </header>
+
+        <main class="campaign-container">
+            <div class="wheel-wrapper">
+                <div class="indicator">▼</div>
+                <canvas id="wheelCanvas" width="450" height="450"></canvas>
+                <button id="spinBtn">SPIN NOW</button>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2026 <span class="brand-name">Elyra Elegants</span> all rights reserved | Developed by <strong>Naim Xbz</strong></p>
+        </footer>
+    </div>
+
+    <div id="resultModal" class="modal">
+        <div class="modal-content" id="modalContent">
+            <span class="close-btn" id="closeModal">&times;</span>
+            <div id="modalIcon" class="modal-icon">🎉</div>
+            <div id="modalMessage" class="modal-message"></div>
+        </div>
+    </div>
+
+    <canvas id="confettiCanvas"></canvas>
+
+    <script src="script.js"></script>
+</body>
+</html>
