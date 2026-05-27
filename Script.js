@@ -1,278 +1,366 @@
-// --- Web Audio API Sound Generator (No external file URLs needed) ---
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+(function() {
+  // Prize Segments for Wheel Display (10 segments - Better Luck Removed)
+  const SEGMENTS = [
+    { name: "১০ টাকা", color: "#FFB347" },
+    { name: "২০ টাকা", color: "#FFD966" },
+    { name: "৫০ টাকা", color: "#F3A683" },
+    { name: "১০০ টাকা", color: "#F7D794" },
+    { name: "২০০ টাকা", color: "#FFA07A" },
+    { name: "কাতান শাড়ি", color: "#C39BD3" },
+    { name: "থ্রি-পিস", color: "#5DADE2" },
+    { name: "টি-শার্ট", color: "#48C9B0" },
+    { name: "জার্সি", color: "#F1948A" },
+    { name: "ঘড়ি", color: "#BB8FCE" }
+  ];
 
-function playSound(type) {
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
+  // NEW PROBABILITY SYSTEM (No Better Luck)
+  // 10 Taka: 45% (Highest)
+  // 20 Taka: 35% (Highest)
+  // 50 Taka: 20% (Low)
+  function getWeightedBasePrize() {
+    const rand = Math.random() * 100;
+    if (rand < 45) {  // 45% chance for 10 Taka
+      return { prizeKey: "১০ টাকা", segmentIdx: 0, value: 10, isJackpot: false };
+    } else if (rand < 80) {  // 35% chance for 20 Taka
+      return { prizeKey: "২০ টাকা", segmentIdx: 1, value: 20, isJackpot: false };
+    } else {  // 20% chance for 50 Taka
+      return { prizeKey: "৫০ টাকা", segmentIdx: 2, value: 50, isJackpot: false };
     }
+  }
+
+  let spinning = false;
+  let currentRotation = 0;
+  let animFrame = null;
+  let pendingResult = null;
+
+  // Audio setup
+  let audioCtx = null;
+
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
+
+  function playSpinSound() {
+    initAudio();
+    if (!audioCtx) return;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
     gain.connect(audioCtx.destination);
+    osc.frequency.value = 420;
+    gain.gain.value = 0.18;
+    osc.type = "sine";
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.45);
+    osc.stop(audioCtx.currentTime + 0.45);
+  }
 
-    if (type === 'spin') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.15);
-    } else if (type === 'win') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-        osc.frequency.setValueAtTime(600, audioCtx.currentTime + 0.1);
-        osc.frequency.setValueAtTime(900, audioCtx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.4);
-    } else if (type === 'jackpot') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.6);
-        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.7);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.7);
+  function playWinSound() {
+    initAudio();
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = 880;
+    gain.gain.value = 0.25;
+    osc.type = "triangle";
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.7);
+    osc.stop(audioCtx.currentTime + 0.6);
+    setTimeout(() => {
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+      osc2.frequency.value = 660;
+      gain2.gain.value = 0.2;
+      osc2.type = "sine";
+      osc2.start();
+      gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.6);
+      osc2.stop(audioCtx.currentTime + 0.6);
+    }, 120);
+  }
+
+  // Canvas setup
+  const canvas = document.getElementById('wheelCanvas');
+  const ctx = canvas.getContext('2d');
+  let width, height;
+
+  function resizeCanvas() {
+    const size = Math.min(540, window.innerWidth * 0.85);
+    canvas.width = size;
+    canvas.height = size;
+    width = size;
+    height = size;
+    drawWheel(currentRotation);
+  }
+
+  function drawWheel(radAngle) {
+    const segAngle = (Math.PI * 2) / SEGMENTS.length;
+    ctx.clearRect(0, 0, width, height);
+    for (let i = 0; i < SEGMENTS.length; i++) {
+      const start = i * segAngle + radAngle;
+      const end = (i + 1) * segAngle + radAngle;
+      ctx.beginPath();
+      ctx.moveTo(width / 2, height / 2);
+      ctx.arc(width / 2, height / 2, width / 2, start, end);
+      ctx.fillStyle = SEGMENTS[i].color;
+      ctx.fill();
+      ctx.save();
+      ctx.translate(width / 2, height / 2);
+      ctx.rotate(start + segAngle / 2);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#1a2a2f";
+      ctx.font = `bold ${Math.max(11, width / 26)}px "Poppins", "Hind Siliguri"`;
+      let displayTxt = SEGMENTS[i].name;
+      if (displayTxt.length > 12) displayTxt = displayTxt.slice(0, 10) + '..';
+      ctx.fillText(displayTxt, width * 0.33, 8);
+      ctx.restore();
+      ctx.strokeStyle = "#FFE6AA";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(width / 2, height / 2);
+      ctx.arc(width / 2, height / 2, width / 2, start, end);
+      ctx.stroke();
     }
-}
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, 22, 0, 2 * Math.PI);
+    ctx.fillStyle = "#f5cd6d";
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
 
-// --- Wheel Data & Canvas Setup ---
-const prizes = [
-    { text: "১০ টাকা", color: "#0d5c63" },
-    { text: "২০ টাকা", color: "#028090" },
-    { text: "৫০ টাকা", color: "#00a896" },
-    { text: "১০০ টাকা", color: "#02c39a" },
-    { text: "২০০ টাকা", color: "#f0f3f4" },
-    { text: "কাতান শাড়ি", color: "#ff007f" },
-    { text: "থ্রি-পিস", color: "#9b5de5" },
-    { text: "টি-শার্ট", color: "#ffd700" }, // Jackpot 
-    { text: "জার্সি", color: "#f15bb5" },
-    { text: "ঘড়ি", color: "#00bbf9" },
-    { text: "Better Luck Next Time", color: "#334155" }
-];
+  let spinStartTime = 0, spinDuration = 2200, startRot = 0, targetRot = 0;
 
-const numSlices = prizes.length;
-const sliceAngle = (2 * Math.PI) / numSlices;
-const canvas = document.getElementById("wheelCanvas");
-const ctx = canvas.getContext("2d");
-const spinBtn = document.getElementById("spinBtn");
-
-let currentRotation = 0;
-
-// Draw Wheel Function
-function drawWheel() {
-    const radius = canvas.width / 2;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Save state to rotate total structure
-    ctx.save();
-    ctx.translate(radius, radius);
-    ctx.rotate(currentRotation);
-    
-    for (let i = 0; i < numSlices; i++) {
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.arc(0, 0, radius - 10, i * sliceAngle, (i + 1) * sliceAngle);
-        ctx.fillStyle = prizes[i].color;
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = "rgba(255,255,255,0.15)";
-        ctx.stroke();
-        
-        // Render Text
-        ctx.save();
-        ctx.fillStyle = (prizes[i].text === "১০ টাকা" || prizes[i].text === "২০ টাকা" || prizes[i].text === "৫০ টাকা" || prizes[i].text === "টি-শার্ট") ? "#ffffff" : "#cbd5e1";
-        if(prizes[i].text === "টি-শার্ট") ctx.fillStyle = "#000000"; // Black text on Gold for readability
-        
-        ctx.rotate(i * sliceAngle + sliceAngle / 2);
-        ctx.font = "bold 15px 'Hind Siliguri', sans-serif";
-        ctx.textAlign = "right";
-        ctx.fillText(prizes[i].text, radius - 35, 6);
-        ctx.restore();
-    }
-    ctx.restore();
-}
-drawWheel();
-
-// --- Probability Calculation Engine ---
-function getTargetIndex() {
-    // 1 in 100 dynamic check for hidden Rare Jackpot (টি-শার্ট)
-    const jackpotRoll = Math.floor(Math.random() * 100);
-    if (jackpotRoll === 7) { 
-        return prizes.findIndex(p => p.text === "টি-শার্ট"); 
-    }
-
-    // Weighted standard distribution for the allowed 4 elements
-    // Better Luck Next Time (45%), ১০ টাকা (35%), ২০ টাকা (15%), ৫০ টাকা (5%)
-    const roll = Math.random() * 100;
-    if (roll < 45) {
-        return prizes.findIndex(p => p.text === "Better Luck Next Time");
-    } else if (roll < 80) {
-        return prizes.findIndex(p => p.text === "১০ টাকা");
-    } else if (roll < 95) {
-        return prizes.findIndex(p => p.text === "২০ টাকা");
+  function animateSpin(now) {
+    const elapsed = now - spinStartTime;
+    let t = Math.min(1, elapsed / spinDuration);
+    const easeOutCubic = 1 - Math.pow(1 - t, 3);
+    currentRotation = startRot + (targetRot - startRot) * easeOutCubic;
+    drawWheel(currentRotation);
+    if (t < 1) {
+      animFrame = requestAnimationFrame(animateSpin);
     } else {
-        return prizes.findIndex(p => p.text === "৫০ টাকা");
+      currentRotation = targetRot;
+      drawWheel(currentRotation);
+      spinning = false;
+      if (!pendingResult) return;
+      const { prizeText, isJackpot, amount } = pendingResult;
+      showResultPopup(prizeText, isJackpot, amount);
+      pendingResult = null;
+      localStorage.setItem('elyra_eidi_spun', 'true');
+      localStorage.setItem('elyra_spin_result', prizeText);
+      if (animFrame) cancelAnimationFrame(animFrame);
+      animFrame = null;
     }
-}
+  }
 
-// --- Spin Logic Handler ---
-spinBtn.addEventListener("click", () => {
-    // Check local storage restriction
-    if (localStorage.getItem("elyra_eid_spinned") === "true") {
-        showModal("🚫 আপনার স্পিন সীমা শেষ হয়েছে", "আপনার ডিভাইস থেকে আজকের ইদি স্পিন ক্যাম্পেইনে একবার অংশগ্রহণ করা হয়ে গেছে। ঈদ মোবারক!");
-        spinBtn.disabled = true;
-        return;
+  function startSpinWithTarget(prizeKey, isJackpotTshirt, amountValue) {
+    let targetIdx = SEGMENTS.findIndex(seg => seg.name === prizeKey);
+    if (targetIdx === -1 && prizeKey === "টি-শার্ট") targetIdx = 7;
+    if (targetIdx === -1 && prizeKey === "১০ টাকা") targetIdx = 0;
+    if (targetIdx === -1 && prizeKey === "২০ টাকা") targetIdx = 1;
+    if (targetIdx === -1 && prizeKey === "৫০ টাকা") targetIdx = 2;
+    if (targetIdx === -1) targetIdx = 0;
+
+    const segAngle = (Math.PI * 2) / SEGMENTS.length;
+    let targetSegmentMid = (targetIdx * segAngle) + segAngle / 2;
+    let pointerAngle = (Math.PI * 1.5);
+    let delta = (pointerAngle - targetSegmentMid + 2 * Math.PI) % (2 * Math.PI);
+    let extraSpins = 10 * Math.PI * 2;
+    let finalRot = (currentRotation + extraSpins + delta) % (2 * Math.PI);
+
+    startRot = currentRotation;
+    targetRot = finalRot;
+    spinStartTime = performance.now();
+    spinning = true;
+    playSpinSound();
+    animFrame = requestAnimationFrame(animateSpin);
+  }
+
+  function performSpin() {
+    if (spinning) return;
+    const alreadySpun = localStorage.getItem('elyra_eidi_spun');
+    if (alreadySpun === 'true') {
+      showLimitPopup();
+      return;
     }
 
-    spinBtn.disabled = true;
-    const targetIndex = getTargetIndex();
-    
-    // Smooth custom easing mechanics
-    const baseSpins = 6 + Math.floor(Math.random() * 4); // 6 to 9 full spins
-    
-    // Calculate final stop angle to pinpoint at absolute top center (270 degrees)
-    const targetAngle = (2 * Math.PI) - (targetIndex * sliceAngle + sliceAngle / 2) - (Math.PI / 2);
-    const finalRotation = (baseSpins * 2 * Math.PI) + targetAngle;
-    
-    let startTimestamp = null;
-    const duration = 5000; // 5 seconds realistic slow down duration
-    
-    let lastSoundAngle = 0;
+    if (navigator.vibrate) navigator.vibrate(100);
 
-    function animateWheel(timestamp) {
-        if (!startTimestamp) startTimestamp = timestamp;
-        const elapsed = timestamp - startTimestamp;
-        const progress = Math.min(elapsed / duration, 1);
-        
-        // Ease-out cubic formula for elite realistic slowdown
-        const easeOutCubic = 1 - Math.pow(1 - progress, 3);
-        currentRotation = easeOutCubic * finalRotation;
-        
-        // Tick sound simulation algorithm on segment crossover
-        if (currentRotation - lastSoundAngle > 0.3) {
-            playSound('spin');
-            lastSoundAngle = currentRotation;
-        }
-        
-        drawWheel();
-        
-        if (progress < 1) {
-            requestAnimationFrame(animateWheel);
-        } else {
-            // Animation complete
-            localStorage.setItem("elyra_eid_spinned", "true");
-            triggerRewardProcessing(prizes[targetIndex].text);
-        }
+    // Hidden T-shirt Jackpot: 1% chance (1 in 100)
+    let isTshirtJackpot = false;
+    const jackpotRoll = Math.random() * 100;
+    if (jackpotRoll < 1) {
+      isTshirtJackpot = true;
     }
-    requestAnimationFrame(animateWheel);
-});
 
-// --- Trigger Reward & Modal Interface ---
-function triggerRewardProcessing(prizeText) {
-    const modal = document.getElementById("resultModal");
-    const content = document.getElementById("modalContent");
-    
-    content.classList.remove("jackpot");
-    
-    if (prizeText === "Better Luck Next Time") {
-        showModal("😢 ভাগ্য সহায় হয়নি", "দুঃখিত! এবার ভাগ্য সহায় হয়নি। Elyra Elegants এর সাথেই থাকুন পরবর্তী অফারের জন্য।");
-    } else if (prizeText === "টি-শার্ট") {
-        content.classList.add("jackpot");
-        playSound('jackpot');
-        startConfettiLoop(true);
-        showModal("🎉 JACKPOT WINNER! 🎉", "অভিনন্দন! আপনি Elyra Elegants এর পক্ষ থেকে একটি এক্সক্লুসিভ 'টি-শার্ট' জ্যাকপট জিতেছেন।");
-        if(navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+    let finalPrizeName = "";
+    let finalAmount = null;
+
+    if (isTshirtJackpot) {
+      finalPrizeName = "টি-শার্ট";
     } else {
-        playSound('win');
-        startConfettiLoop(false);
-        showModal("🎁 অভিনন্দন! 🎁", `আপনি জিতেছেন ${prizeText} ইদি সালামি!`);
-        if(navigator.vibrate) navigator.vibrate(150);
+      const base = getWeightedBasePrize();
+      finalPrizeName = base.prizeKey;
+      finalAmount = base.value;
     }
-}
 
-// --- Modal Helper Engine ---
-function showModal(title, description) {
-    const modal = document.getElementById("resultModal");
-    document.getElementById("modalIcon").innerText = title.includes("Better Luck") || title.includes("সহায় হয়নি") ? "🌙" : "🎉";
-    document.getElementById("modalMessage").innerHTML = `<h3>${title}</h3><p style="margin-top:10px; font-weight:400; opacity:0.9;">${description}</p>`;
-    modal.classList.add("show");
-}
+    pendingResult = {
+      prizeText: finalPrizeName,
+      isJackpot: isTshirtJackpot,
+      amount: finalAmount
+    };
 
-document.getElementById("closeModal").addEventListener("click", () => {
-    document.getElementById("resultModal").classList.remove("show");
-    stopConfettiLoop();
-});
+    startSpinWithTarget(finalPrizeName, isTshirtJackpot, finalAmount);
+  }
 
-// Window initial check state
-if (localStorage.getItem("elyra_eid_spinned") === "true") {
-    spinBtn.disabled = true;
-}
+  function showResultPopup(prize, isJackpot, amount) {
+    const modal = document.getElementById('resultModal');
+    const titleEl = document.getElementById('modalTitle');
+    const msgEl = document.getElementById('modalMessage');
 
-// --- Confetti Canvas Scripting System ---
-const confettiCanvas = document.getElementById("confettiCanvas");
-const confettiCtx = confettiCanvas.getContext("2d");
-let confettiArray = [];
-let confettiAnimationId = null;
+    if (isJackpot && prize === "টি-শার্ট") {
+      titleEl.innerHTML = "🎉✨ JACKPOT WINNER! ✨🎉";
+      msgEl.innerHTML = "🎁 আপনি জিতেছেন একটি টি-শার্ট! 🎁<br>আমাদের সাথে যোগাযোগ করুন পুরস্কার পেতে।";
+      playWinSound();
+      startConfetti(6);
+      triggerGoldenGlow();
+    } else {
+      titleEl.innerHTML = "🎉 অভিনন্দন! 🎉";
+      msgEl.innerHTML = `আপনি জিতেছেন ${prize} ইদি! ঈদ মোবারক ✨`;
+      playWinSound();
+      startConfetti(3);
+    }
+    modal.classList.add('active');
+  }
 
-function resizeConfettiCanvas() {
+  function triggerGoldenGlow() {
+    const modalContent = document.querySelector('.modal-content');
+    modalContent.style.animation = 'none';
+    modalContent.offsetHeight;
+    modalContent.style.animation = 'zoomPop 0.5s, goldFlash 0.8s infinite';
+  }
+
+  function showLimitPopup() {
+    const modal = document.getElementById('resultModal');
+    document.getElementById('modalTitle').innerHTML = "⚠️ সীমা শেষ ⚠️";
+    document.getElementById('modalMessage').innerHTML = "আপনার স্পিন সীমা শেষ হয়েছে। একটি ডিভাইস থেকে মাত্র ১ বার স্পিন করা যাবে।";
+    modal.classList.add('active');
+  }
+
+  // Confetti Effect
+  let confettiCanvas = null;
+  let confettiCtx = null;
+
+  function startConfetti(seconds) {
+    if (!confettiCanvas) {
+      confettiCanvas = document.createElement('canvas');
+      confettiCanvas.classList.add('confetti-canvas');
+      document.body.appendChild(confettiCanvas);
+      confettiCtx = confettiCanvas.getContext('2d');
+      window.addEventListener('resize', () => {
+        if (confettiCanvas) {
+          confettiCanvas.width = window.innerWidth;
+          confettiCanvas.height = window.innerHeight;
+        }
+      });
+    }
     confettiCanvas.width = window.innerWidth;
     confettiCanvas.height = window.innerHeight;
-}
-window.addEventListener("resize", resizeConfettiCanvas);
-resizeConfettiCanvas();
+    let particles = [];
+    for (let i = 0; i < 180; i++) {
+      particles.push({
+        x: Math.random() * confettiCanvas.width,
+        y: Math.random() * confettiCanvas.height - confettiCanvas.height,
+        size: Math.random() * 7 + 2,
+        color: `hsl(${Math.random() * 360}, 85%, 60%)`,
+        speedY: Math.random() * 8 + 4,
+        speedX: (Math.random() - 0.5) * 4,
+      });
+    }
+    let startTime = Date.now();
 
-class ConfettiParticle {
-    constructor(isJackpot) {
-        this.x = Math.random() * confettiCanvas.width;
-        this.y = Math.random() * confettiCanvas.height - confettiCanvas.height;
-        this.size = Math.random() * 8 + 4;
-        this.color = isJackpot ? `hsl(${Math.random() * 30 + 45}, 100%, 50%)` : `hsl(${Math.random() * 360}, 100%, 50%)`;
-        this.speedX = Math.random() * 4 - 2;
-        this.speedY = Math.random() * 5 + 3;
-        this.rotation = Math.random() * 360;
-        this.rotationSpeed = Math.random() * 4 - 2;
+    function drawConfetti() {
+      if (!confettiCanvas || !confettiCtx) return;
+      confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+      for (let p of particles) {
+        confettiCtx.fillStyle = p.color;
+        confettiCtx.fillRect(p.x, p.y, p.size, p.size * 0.7);
+        p.y += p.speedY;
+        p.x += p.speedX;
+        if (p.y > confettiCanvas.height) {
+          p.y = -15;
+          p.x = Math.random() * confettiCanvas.width;
+        }
+      }
+      if (Date.now() - startTime < seconds * 1000) {
+        requestAnimationFrame(drawConfetti);
+      } else {
+        if (confettiCtx) confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+        if (confettiCanvas) confettiCanvas.style.display = 'none';
+      }
     }
-    update() {
-        this.y += this.speedY;
-        this.x += this.speedX;
-        this.rotation += this.rotationSpeed;
-    }
-    draw() {
-        confettiCtx.save();
-        confettiCtx.translate(this.x, this.y);
-        confettiCtx.rotate((this.rotation * Math.PI) / 180);
-        confettiCtx.fillStyle = this.color;
-        confettiCtx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
-        confettiCtx.restore();
-    }
-}
+    confettiCanvas.style.display = 'block';
+    drawConfetti();
+  }
 
-function startConfettiLoop(isJackpot) {
-    confettiArray = [];
-    const count = isJackpot ? 250 : 120;
-    for (let i = 0; i < count; i++) {
-        confettiArray.push(new ConfettiParticle(isJackpot));
+  // Floating particles initialization
+  function initParticles() {
+    const container = document.getElementById('particlesContainer');
+    for (let i = 0; i < 80; i++) {
+      let particle = document.createElement('div');
+      particle.classList.add('particle');
+      let size = Math.random() * 5 + 2;
+      particle.style.width = size + 'px';
+      particle.style.height = size + 'px';
+      particle.style.left = Math.random() * 100 + '%';
+      particle.style.animationDelay = Math.random() * 10 + 's';
+      particle.style.animationDuration = 5 + Math.random() * 9 + 's';
+      particle.style.background = `radial-gradient(circle, rgba(255,210,70,0.9), rgba(255,140,0,0.3))`;
+      container.appendChild(particle);
     }
-    function updateConfetti() {
-        confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
-        confettiArray.forEach((p, idx) => {
-            p.update();
-            p.draw();
-            if (p.y > confettiCanvas.height) {
-                confettiArray[idx].y = -20;
-            }
-        });
-        confettiAnimationId = requestAnimationFrame(updateConfetti);
-    }
-    updateConfetti();
-}
+  }
 
-function stopConfettiLoop() {
-    if (confettiAnimationId) {
-        cancelAnimationFrame(confettiAnimationId);
-        confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+  function checkSpinStatus() {
+    const spinBtn = document.getElementById('spinBtn');
+    if (localStorage.getItem('elyra_eidi_spun') === 'true') {
+      spinBtn.disabled = true;
+    } else {
+      spinBtn.disabled = false;
     }
-}
+  }
+
+  // Event Listeners
+  window.addEventListener('load', () => {
+    resizeCanvas();
+    drawWheel(0);
+    initParticles();
+    checkSpinStatus();
+
+    const spinBtn = document.getElementById('spinBtn');
+    spinBtn.addEventListener('click', performSpin);
+
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    closeModalBtn.addEventListener('click', () => {
+      document.getElementById('resultModal').classList.remove('active');
+    });
+
+    window.addEventListener('resize', () => {
+      resizeCanvas();
+      drawWheel(currentRotation);
+    });
+
+    // Enable audio after first user gesture
+    document.body.addEventListener('click', () => {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }, { once: true });
+  });
+})();
